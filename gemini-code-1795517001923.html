@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>棒球 3D 主題冒險群島 - 浮空圖片看板</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { margin: 0; overflow: hidden; background: #87ceeb; }
+    #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+    .panel { position: absolute; top: 20px; left: 20px; width: 300px; background: rgba(255, 255, 255, 0.9); padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10; transition: transform 0.3s ease; }
+    .panel.collapsed { transform: translateX(-120%); }
+    #toggle-sidebar { position: absolute; right: -70px; top: 0; padding: 8px; cursor: pointer; background: white; border: none; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+    h1 { color: #e66a35; font-size: 24px; margin-top: 0; }
+    .action-btn { width: 100%; padding: 10px; background: #e66a35; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+    .action-btn:hover { background: #d05a25; }
+    .build-menu { margin-top: 20px; padding-top: 15px; border-top: 2px dashed #ccc; }
+    .build-btn { margin: 5px 2px; padding: 8px; background: #8ab661; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+    /* Modal 視窗 */
+    .modal { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 100; display: flex; justify-content: center; align-items: center; }
+    .modal.hidden { display: none; }
+    .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; position: relative; }
+    .close { position: absolute; right: 20px; top: 15px; font-size: 24px; cursor: pointer; }
+    #modal-img { width: 100%; border-radius: 8px; margin: 10px 0; max-height: 250px; object-fit: cover; }
+    .source-text { font-size: 12px; color: #666; text-align: right; margin-top: -5px; }
+    .knowledge-box { background: #f0f8ff; padding: 12px; border-radius: 8px; border-left: 4px solid #4169e1; }
+    .quiz-btn { display: block; width: 100%; margin: 8px 0; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; cursor: pointer; border-radius: 6px; }
+    .quiz-btn:hover { background: #e0e0e0; }
+    .quiz-btn.correct { background: #90ee90; color: #006400; font-weight: bold; }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  
+  <div id="sidebar" class="panel">
+    <button id="toggle-sidebar">☰ 收合</button>
+    <h1 id="theme-title">載入中...</h1>
+    <div id="progress-container">任務進度: <span id="progress">0</span>/6</div>
+    <button id="btn-tour" class="action-btn">開始導覽島嶼</button>
+    
+    <div class="build-menu">
+      <h3>建造工坊</h3>
+      <button class="build-btn" data-type="tree">種樹</button>
+      <button class="build-btn" data-type="house">房子</button>
+      <button class="build-btn" data-type="bridge">建橋樑</button>
+      <button class="build-btn" id="btn-undo">撤銷</button>
+    </div>
+  </div>
+  
+  <div id="info-modal" class="modal hidden">
+    <div class="modal-content">
+      <span id="close-modal" class="close">&times;</span>
+      <h2 id="modal-title"></h2>
+      <img id="modal-img" src="" alt="圖片" />
+      <p id="modal-photo-source" class="source-text"></p>
+      <p id="modal-desc"></p>
+      <p id="modal-knowledge" class="knowledge-box"></p>
+      <a id="modal-link" href="#" target="_blank">📚 參考資料</a>
+      
+      <div id="quiz-section">
+        <h3>互動挑戰</h3>
+        <p id="quiz-question"></p>
+        <div id="quiz-options"></div>
+        <p id="quiz-result"></p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // === 島嶼與人物資料庫 ===
+    const themeData = {
+      theme: "棒球 3D 群島",
+      colors: { background: "#87ceeb", islandTop: "#8ab661", islandBottom: "#8b5a2b" },
+      islands: [
+        {
+          id: "origin", name: "棒球起源島",
+          description: "棒球是由兩支最少9人隊伍進行的扇形場地運動。",
+          knowledge: "現代棒球規則起源於19世紀中期的美國紐約。",
+          photo: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Baseball_desktop.jpg/640px-Baseball_desktop.jpg",
+          photoSource: "Wikimedia Commons", sourceUrl: "https://zh.wikipedia.org/zh-tw/%E6%A3%92%E7%90%83",
+          quiz: { question: "防守方在場上最少需要幾名球員？", options: ["7人", "9人", "11人"], answer: 1 },
+          position: [0, 0, 0]
+        },
+        {
+          id: "equipment", name: "球具裝備島",
+          description: "球員必須穿著專用制服並使用特定器材。",
+          knowledge: "標準裝備包括棒球帽、球衣、球褲、手套、釘鞋與球棒。",
+          photo: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Baseball_bat_and_glove.jpg/640px-Baseball_bat_and_glove.jpg",
+          photoSource: "Wikimedia Commons", sourceUrl: "https://zh.wikipedia.org/zh-tw/%E6%A3%92%E7%90%83%E6%9C%8D",
+          quiz: { question: "哪一項不是標準棒球裝備？", options: ["手套", "球棒", "羽毛球拍"], answer: 2 },
+          position: [15, 2, -10]
+        }
+      ]
+    };
+
+    const npcProfiles = [
+      {
+        id: "pitcher", name: "王牌投手 (Pitcher)",
+        description: "投手是防守方核心人物。",
+        knowledge: "站在投手丘上，目標是將球投進好球帶，讓打者揮棒落空。",
+        photo: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Aroldis_Chapman_pitching_2011.jpg/640px-Aroldis_Chapman_pitching_2011.jpg",
+        photoSource: "Wikimedia Commons", sourceUrl: "https://zh.wikipedia.org/zh-tw/%E6%8A%95%E6%89%8B",
+        quiz: { question: "投手投球的站立位置稱為什麼？", options: ["打擊區", "投手丘", "外野草皮"], answer: 1 }
+      },
+      {
+        id: "batter", name: "強打者 (Batter)",
+        description: "打者負責在打擊區將投手的球擊出。",
+        knowledge: "優秀的打者目標是擊出安打或全壘打。",
+        photo: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Babe_Ruth_swinging.jpg/640px-Babe_Ruth_swinging.jpg",
+        photoSource: "Wikimedia Commons", sourceUrl: "https://zh.wikipedia.org/zh-tw/%E6%89%93%E6%93%8A%E6%89%8B",
+        quiz: { question: "球隊第幾棒通常被認為是最強打者？", options: ["第一棒", "第四棒", "第九棒"], answer: 1 }
+      }
+    ];
+
+    // 全域變數
+    let scene, camera, renderer, controls;
+    const islands = [], npcs = [], builtObjects = [];
+    let buildMode = 'none', selectedIslandForBridge = null;
+    let completedQuizzes = new Set();
+    const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
+
+    // 圖片載入器 (解決跨域問題)
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin('anonymous');
+
+    init();
+    animate();
+
+    function init() {
+      const container = document.getElementById('canvas-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(themeData.colors.background);
+      
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 25, 35);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(20, 50, 20);
+      scene.add(dirLight);
+
+      generateWorld();
+      setupUI();
+      
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+      window.addEventListener('click', onClick);
+    }
+
+    function generateWorld() {
+      const geoTop = new THREE.CylinderGeometry(8, 5, 2, 8);
+      const matTop = new THREE.MeshStandardMaterial({ color: themeData.colors.islandTop, flatShading: true });
+      const geoBot = new THREE.CylinderGeometry(5, 0, 5, 8);
+      const matBot = new THREE.MeshStandardMaterial({ color: themeData.colors.islandBottom, flatShading: true });
+
+      themeData.islands.forEach(data => {
+        const group = new THREE.Group();
+        group.position.set(...data.position);
+        group.userData = { isIsland: true, data: data };
+
+        const top = new THREE.Mesh(geoTop, matTop);
+        top.position.y = 1;
+        const bot = new THREE.Mesh(geoBot, matBot);
+        bot.position.y = -2.5;
+        group.add(top, bot);
+        scene.add(group);
+        islands.push(group);
+
+        // 新增：島嶼上方浮空圖片看板
+        textureLoader.load(data.photo, (texture) => {
+          const spriteMat = new THREE.SpriteMaterial({ map: texture });
+          const sprite = new THREE.Sprite(spriteMat);
+          sprite.position.set(0, 7, 0); // 浮空在島嶼上方
+          sprite.scale.set(6, 4, 1);
+          group.add(sprite);
+        });
+        
+        createBaseballNPC(group, npcProfiles[0]); 
+        createBaseballNPC(group, npcProfiles[1]); 
+      });
+    }
+
+    function createBaseballNPC(parentIsland, profileData) {
+      const npcGroup = new THREE.Group();
+      npcGroup.userData = { isNPC: true, data: profileData };
+      
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xffccaa });
+      const uniformMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+      const capMat = new THREE.MeshStandardMaterial({ color: 0x1f4e79 }); 
+      
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skinMat);
+      head.position.y = 1.35;
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.2, 0.52), capMat);
+      cap.position.y = 1.65;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.4), uniformMat);
+      body.position.y = 0.7;
+      
+      const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.2), uniformMat);
+      leftLeg.position.set(-0.15, 0.25, 0);
+      const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.2), uniformMat);
+      rightLeg.position.set(0.15, 0.25, 0);
+      
+      const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), uniformMat);
+      leftArm.position.set(-0.4, 0.8, 0);
+      const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), uniformMat);
+      rightArm.position.set(0.4, 0.8, 0);
+      
+      npcGroup.add(head, cap, body, leftLeg, rightLeg, leftArm, rightArm);
+      npcGroup.position.set((Math.random() - 0.5) * 8, 2, (Math.random() - 0.5) * 8);
+
+      // 新增：人物頭頂專屬圖片看板 (會跟著人物移動)
+      textureLoader.load(profileData.photo, (texture) => {
+        const spriteMat = new THREE.SpriteMaterial({ map: texture });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.position.set(0, 3, 0); // 浮空在人物上方
+        sprite.scale.set(2.5, 1.8, 1);
+        npcGroup.add(sprite);
+      });
+      
+      npcGroup.animData = {
+        leftLeg, rightLeg, leftArm, rightArm,
+        angle: Math.random() * Math.PI * 2,
+        speed: 0.01 + Math.random() * 0.01,
+        walkCycle: Math.random() * 10,
+        radius: 6
+      };
+      
+      parentIsland.add(npcGroup);
+      npcs.push(npcGroup);
+    }
+
+    function onClick(event) {
+      if (event.target.tagName !== 'CANVAS') return;
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      if (intersects.length > 0) {
+        let targetGroup = intersects[0].object.parent;
+        while(targetGroup && targetGroup.type !== 'Scene') {
+          if (targetGroup.userData.isIsland || targetGroup.userData.isNPC) break;
+          targetGroup = targetGroup.parent;
+        }
+
+        if (targetGroup && (targetGroup.userData.isIsland || targetGroup.userData.isNPC)) {
+          if (buildMode !== 'none') {
+            if (targetGroup.userData.isIsland) {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({color:0xff0000}));
+              mesh.position.copy(intersects[0].point).setY(intersects[0].point.y + 0.5);
+              scene.add(mesh);
+            }
+          } else {
+            showModal(targetGroup.userData.data);
+          }
+        }
+      }
+    }
+
+    function showModal(data) {
+      document.getElementById('info-modal').classList.remove('hidden');
+      document.getElementById('modal-title').innerText = data.name;
+      document.getElementById('modal-img').src = data.photo;
+      document.getElementById('modal-desc').innerText = data.description;
+      document.getElementById('modal-knowledge').innerText = data.knowledge;
+      document.getElementById('modal-link').href = data.sourceUrl;
+
+      document.getElementById('quiz-question').innerText = data.quiz.question;
+      const optsDiv = document.getElementById('quiz-options');
+      optsDiv.innerHTML = '';
+      
+      data.quiz.options.forEach((opt, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'quiz-btn';
+        btn.innerText = opt;
+        btn.onclick = () => {
+          if (idx === data.quiz.answer) {
+            btn.classList.add('correct');
+            completedQuizzes.add(data.id);
+            document.getElementById('progress').innerText = completedQuizzes.size;
+          }
+        };
+        optsDiv.appendChild(btn);
+      });
+    }
+
+    function setupUI() {
+      document.getElementById('theme-title').innerText = themeData.theme;
+      document.getElementById('toggle-sidebar').onclick = (e) => {
+        document.getElementById('sidebar').classList.toggle('collapsed');
+      };
+      document.querySelectorAll('.build-btn').forEach(btn => btn.addEventListener('click', (e) => buildMode = e.target.dataset.type || 'none'));
+      document.getElementById('close-modal').onclick = () => document.getElementById('info-modal').classList.add('hidden');
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      npcs.forEach(npc => {
+        const anim = npc.animData;
+        anim.walkCycle += anim.speed * 10;
+        npc.position.x += Math.sin(anim.angle) * anim.speed;
+        npc.position.z += Math.cos(anim.angle) * anim.speed;
+        npc.rotation.y = anim.angle;
+
+        if (Math.sqrt(npc.position.x**2 + npc.position.z**2) > anim.radius) {
+          anim.angle += Math.PI + (Math.random() - 0.5); 
+          npc.position.x -= Math.sin(anim.angle) * anim.speed * 2;
+          npc.position.z -= Math.cos(anim.angle) * anim.speed * 2;
+        }
+
+        const swing = Math.sin(anim.walkCycle) * 0.5;
+        anim.leftLeg.rotation.x = swing; anim.rightLeg.rotation.x = -swing;
+        anim.leftArm.rotation.x = -swing; anim.rightArm.rotation.x = swing;
+      });
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
